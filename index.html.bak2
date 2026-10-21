@@ -1,0 +1,717 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<title>京东信息表-成都青鸟维安科技有限公司</title>
+	<script src="js/vue.js"></script>
+	<link rel="stylesheet" href="css/elementui.css">
+	<link rel="stylesheet" href="css/index.css">
+	<link rel="icon" href="./favicon.ico">
+	<!-- 引入组件库 -->
+	<script src="js/elementui.js"></script>
+	<style>
+		.row-exception {
+			background-color: #fff2f2 !important;
+		}
+
+		.exceptionInfo {
+			color: red;
+			font-weight: bold;
+		}
+
+		.stream-dot {
+			display: inline-block;
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background: #ff4d4f;
+			margin-right: 4px;
+		}
+
+		.stream-dot.online {
+			background: #67c23a;
+		}
+
+		.warehouse-container .demonstration {
+			font-size: 14px;
+		}
+
+		.warehouse-container .warehouse {
+			padding-left: 10px;
+			border: 1px solid #ccc !important;
+			width: 150px;
+			border-radius: 5px;
+		}
+
+		/* 出库托盘授权弹窗 - 放大关闭按钮 */
+		.outTrayDialog .el-dialog__headerbtn {
+			top: 16px;
+			right: 16px;
+		}
+
+		.outTrayDialog .el-dialog__close {
+			font-size: 24px !important;
+			color: #909399;
+		}
+
+		.outTrayDialog .el-dialog__close:hover {
+			color: #409EFF;
+		}
+	</style>
+</head>
+
+<body>
+	<div id="app">
+		<div class="content">
+			<div>
+				<div class="caption">
+					京东RFID扫码实时看板
+					<div class="stream-status">
+						<span :class="['stream-dot', { online: streamStatus === 'connected' }]"></span>
+						<span>{{ streamStatusText }}</span>
+					</div>
+
+					<div class="warehouse-container">
+						<span class="demonstration" style="color: #fff; margin-right: 10px;">仓门选择：</span>
+						<el-select v-model="listPostData.nodeCode" placeholder="全部" clearable size="small"
+							@change="handleWarehouseChange" class="warehouse">
+							<el-option label="全部" value=""></el-option>
+							<el-option v-for="(item, index) in warehouseList" :key="item.nodeCode || index" :label="item.nodeName"
+								:value="item.nodeName"></el-option>
+						</el-select>
+
+					</div>
+				</div>
+				<div class="search-container">
+					<div>
+						<div class="block">
+							<span class="demonstration">按日期搜索</span>
+							<el-date-picker v-model="value1" type="daterange" align="right" unlink-panels range-separator="至"
+								start-placeholder="开始日期" end-placeholder="结束日期" :picker-options="pickerOptions" @change="handleSearch"
+								clearable size="small">
+							</el-date-picker>
+						</div>
+						<div class="block">
+							<span class="demonstration">托盘ID</span>
+							<el-select v-model="listPostData.trayId" placeholder="请选择托盘" clearable size="small">
+								<el-option v-for="(item, index) in trayIdList" :key="item.id || index" :label="item.label || item"
+									:value="item.id || item"></el-option>
+							</el-select>
+						</div>
+						<div class="block">
+							<span class="demonstration">状态</span>
+							<el-select v-model="listPostData.state" placeholder="请选择状态" clearable size="small">
+								<el-option v-for="(item, index) in exceptionList" :key="index" :label="item" :value="item"></el-option>
+							</el-select>
+						</div>
+						<el-button type="primary" @click="searchClick" size="small">查询</el-button>
+					</div>
+					<div>
+						<div class="block">
+							<el-button type="success" size="mini" :disabled="!listPostData.nodeCode"
+								@click="openOutTrayDialog">选择的授权托盘</el-button>
+						</div>
+					</div>
+				</div>
+				<div class="table-container">
+					<el-table :data="tableData" height="250" border style="width: 100%" :row-class-name="tableRowClassName">
+						<el-table-column prop="id" label="序号" width="150">
+						</el-table-column>
+						<el-table-column prop="trayId" label="托盘ID" width="200">
+							<template slot-scope="scope">
+								<span style="color:#409EFF;cursor:pointer;" @click="openTrayTrack(scope.row.trayId)">
+									{{scope.row.trayId}}
+								</span>
+							</template>
+						</el-table-column>
+						<el-table-column prop="rfid" label="转运单" width="350">
+						</el-table-column>
+						<el-table-column prop="tpCode" label="货物条码" width="300">
+						</el-table-column>
+						<el-table-column prop="state" label="状态" width="200">
+							<template slot-scope="scope">
+								{{scope.row.businessState == 'OUTBOUND_EXCEPTION' ? '出库异常' : scope.row.businessState =='IN_STOCK' ? "入库"
+								:
+								scope.row.businessState == 'OUTBOUND' ? "出库" : scope.row.businessState }}
+							</template>
+						</el-table-column>
+						<el-table-column prop="nodeCode" label="最后仓库/门" width="">
+							<template slot-scope="scope">
+								{{ scope.row.warehouseDoor ? scope.row.nodeCode + '/' + scope.row.warehouseDoor :
+								scope.row.nodeCode }}
+							</template>
+						</el-table-column>
+						<el-table-column prop="businessState" label="业务状态" width="200">
+							<template slot-scope="scope">
+								<div :class="scope.row.businessState === 'OUTBOUND_EXCEPTION' ? 'exceptionInfo' : ''">
+									{{scope.row.businessState == 'OUTBOUND_EXCEPTION' ? '出库异常' : scope.row.businessState =='IN_STOCK' ?
+									"入库"
+									:
+									scope.row.businessState == 'OUTBOUND' ? "出库" : scope.row.businessState }}
+
+								</div>
+							</template>
+						</el-table-column>
+						<el-table-column prop="updateTime" label="更新时间" width="200">
+						</el-table-column>
+					</el-table>
+				</div>
+				<div class="pagination-main">
+					<el-pagination @size-change="handleSizeChange" @current-change="handleCurrentChange"
+						:page-sizes="[30, 50, 100]" :page-size="listPostData.pageSize" :current-page="listPostData.pageNum"
+						layout="total, sizes, prev, pager, next, jumper" :total="total">
+					</el-pagination>
+				</div>
+			</div>
+			<el-dialog class="outTrayDialog" :title="`选择'${listPostData.nodeCode}' 授权托盘`" :visible.sync="outTrayDialogVisible"
+				width="625px" :close-on-click-modal="false">
+				<div class="">
+					<el-transfer filterable :filter-method="filterMethod" filter-placeholder="请输入托盘ID" v-model="outListPostData"
+						:data="trayIdList2" :titles="['未授权托盘', '已授权托盘']" @change="handleChangeTransfer">
+					</el-transfer>
+				</div>
+			</el-dialog>
+			<el-dialog class="errorDialog" :visible.sync="dialogVisible" width="40%" :close-on-click-modal="false">
+				<div class="dialogTitle">异常警告<span> （ 当前托盘：{{exceptionMessage.length > 0 ? exceptionMessage[0].trayId : '' }}
+						）</span>
+				</div>
+				<div class="dialogCont">
+					<div>
+						<div class="exceptionItem" v-for="(item, index) in exceptionMessage" :key="item.trayId">
+							<div class="left">
+								<span> 货号：{{ item.id }} - {{ item.businessState == 'OUTBOUND_EXCEPTION' ? '出库异常' : item.businessState
+									=='IN_STOCK' ?
+									"入库"
+									:
+									item.businessState == 'OUTBOUND' ? "出库" : item.businessState }}</span>
+							</div>
+							<div class="right">
+								<div class="exceptionCont">
+									<p>异常类型：{{ item.businessState == 'OUTBOUND_EXCEPTION' ? '出库异常' : item.businessState =='IN_STOCK' ?
+										"入库"
+										:
+										item.businessState == 'OUTBOUND' ? "出库" : item.businessState }}</p>
+									<p>托盘号：{{ item.trayId }}</p>
+									<p>货物条码：{{ item.tpCode }}</p>
+									<p>仓库：{{ item.nodeCode }}</p>
+									<p>异常时间：{{ item.createTime }}</p>
+									<p>京东Rfid：{{ item.rfid }}</p>
+									<!-- {
+    "id": 1078,
+    "nodeCode": "郑州市",
+    "trayId": "TP001",
+    "rfid": "A22748943918555DB46BD6E6F51DC1E6",
+    "tpCode": "V028161741536-6-0-",
+    "tcpId": "JDV028161741536",
+    "tcpStatus": "IN_STOCK",
+    "state": "0",
+    "businessState": "OUTBOUND",
+    "version": 1,
+    "lastOperateType": "OUTBOUND_SCAN",
+    "lastOperateTime": "2026-09-30T16:53:48",
+    "lastOperateBatchNo": "AUTH-E4997A657D3F49A080514825953CB704",
+    "createTime": "2026-09-30 16:53:33",
+    "updateTime": "2026-09-30 16:53:48"
+} -->
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</el-dialog>
+			<!-- 托盘轨迹弹窗 -->
+			<el-dialog title="托盘流转轨迹" :visible.sync="trayTrackDialogVisible" width="700px">
+				<el-table :data="trackTableData" border>
+					<el-table-column label="扫描时间" prop="updateTime"></el-table-column>
+					<el-table-column label="仓库/门" prop="lastWarehouse"></el-table-column>
+					<el-table-column label="状态" prop="state"></el-table-column>
+					<el-table-column label="是否异常" prop="isException"></el-table-column>
+				</el-table>
+				<span slot="footer" class="dialog-footer">
+					<el-button @click="trayTrackDialogVisible = false">关闭</el-button>
+				</span>
+			</el-dialog>
+		</div>
+	</div>
+</body>
+<script>
+	const app = {
+		data() {
+			return {
+				apiBaseUrl: 'http://192.168.0.209:8080/',//http://8.137.162.161:8080/
+				listPostData: {
+					pageNum: 1,
+					pageSize: 30,
+					startDateTime: "",
+					endDateTime: "",
+					trayId: "",
+					state: "",
+					nodeCode: ""
+				},
+				tableData: [],
+				value1: '',
+				total: 0,
+				eventSource: null,
+				refreshTimer: null,
+				streamStatus: 'disconnected',
+				streamStatusText: '长连接未连接',
+				pickerOptions: {
+					shortcuts: [
+						{ text: '最近一周', days: 7 },
+						{ text: '最近一个月', days: 30 },
+						{ text: '最近三个月', days: 90 }
+					].map(({ text, days }) => ({
+						text,
+						onClick(picker) {
+							const end = new Date();
+							const start = new Date();
+							start.setTime(start.getTime() - 3600 * 1000 * 24 * days);
+							picker.$emit('pick', [start, end]);
+						}
+					}))
+				},
+				dialogVisible: false,
+				outTrayDialogVisible: false,
+				exceptionList: ['全部', 'B出库', 'TC入库', 'TC出库', 'B入库', '异常'],
+				exceptionMessage: [],
+				trayIdList: [],
+				trayIdList2: [],
+				warehouseList: [],
+				outListPostData: [],
+				defaultOutTray: [],
+				outLoading: false,
+				outAuthorizationMap: {},
+				filterMethod(query, item) {
+					return item.label.indexOf(query) > -1;
+				},
+				isSearchHistory: false,
+				trayTrackDialogVisible: false,
+				trackTableData: [],
+				lastScanPalletSet: new Set(),
+				stateEnum: {
+					'OUTBOUND_EXCEPTION': '出库异常',
+					'OUTBOUND': '出库',
+					'IN_STOCK': '入库',
+				},
+			}
+		},
+		mounted() {
+			this.loadRfidData();
+			this.connectStream();
+		},
+		methods: {
+			// ===== 枚举转换 =====
+			getBusinessState(state) {
+				return this.stateEnum[state]
+			},
+
+			// ===== 基础请求封装 =====
+			request(url, options = {}) {
+				return fetch(this.apiBaseUrl + url, options)
+					.then(res => {
+						if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+						return res.json();
+					});
+			},
+			post(url, data) {
+				return this.request(url, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(data)
+				});
+			},
+			get(url, data) {
+				let fullUrl = url;
+				if (data && Object.keys(data).length > 0) {
+					const params = new URLSearchParams(data);
+					fullUrl += '?' + params.toString();
+				}
+				return this.request(fullUrl, { method: 'GET' });
+			},
+			delete(url, data) {
+				return this.request(url, {
+					method: 'DELETE',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(data)
+				});
+			},
+
+			// ===== 工具函数 =====
+			formatDate(date) {
+				const d = new Date(date);
+				return d.getFullYear() + '-' +
+					String(d.getMonth() + 1).padStart(2, '0') + '-' +
+					String(d.getDate()).padStart(2, '0');
+			},
+			formatTime(timeStr) {
+				return timeStr ? timeStr.replace('T', ' ') : timeStr;
+			},
+			setStreamStatus(status, text) {
+				this.streamStatus = status;
+				this.streamStatusText = text;
+			},
+			showMessage(message, type = 'info') {
+				this.$message({ message, type });
+			},
+			tableRowClassName({ row }) {
+				if (row.businessState === 'OUTBOUND_EXCEPTION') {
+					return 'row-exception'
+				}
+				return ''
+			},
+
+			// ===== 数据加载 =====
+			loadRfidData() {
+				this.post('api/rfid/page', this.listPostData).then(res => {
+					this.tableData = res.data.records.map(item => ({
+						...item,
+						updateTime: this.formatTime(item.updateTime),
+						createTime: this.formatTime(item.createTime)
+					}));
+					this.total = res.data.total;
+					this.loadWarehouseList();
+				}).catch(error => {
+					console.error('查询数据失败:', error);
+					this.showMessage('查询数据失败', 'error');
+				});
+			},
+			loadWarehouseList() {
+				this.get('api/node/all').then(res => {
+					this.warehouseList = res.data;
+				});
+			},
+
+			// ===== 搜索与筛选 =====
+			handleSearch(val) {
+				if (!val) {
+					this.listPostData.startDateTime = "";
+					this.listPostData.endDateTime = "";
+					this.isSearchHistory = false;
+					return;
+				}
+				this.listPostData.startDateTime = this.formatDate(val[0]) + 'T00:00:00';
+				this.listPostData.endDateTime = this.formatDate(val[1]) + 'T23:59:59';
+			},
+			searchClick() {
+				this.listPostData.pageNum = 1;
+				this.isSearchHistory = true;
+				this.loadRfidData();
+			},
+			handleWarehouseChange(val) {
+				this.listPostData.nodeCode = val;
+				this.listPostData.pageNum = 1;
+				this.listPostData.trayId = "";
+
+				if (val) {
+					this.loadTrayIdList(val);
+				} else {
+					this.trayIdList = [];
+				}
+
+				this.loadRfidData();
+			},
+			loadTrayIdList(nodeCode) {
+				console.log('加载托盘ID列表，仓门:', nodeCode);
+				this.get(`api/rfid/outbound-profile/nodes/${nodeCode}/available-trays`).then(res => {
+					console.log('托盘ID列表响应:', res.data);
+					const trays = Array.isArray(res.data) ? res.data : [];
+					this.trayIdList = trays.map(trayId => ({
+						id: String(trayId),
+						label: String(trayId)
+					}));
+					console.log('托盘ID列表:', this.trayIdList);
+				}).catch(error => {
+					console.error('加载托盘ID列表失败:', error);
+					this.trayIdList = [];
+				});
+			},
+
+			// ===== 分页 =====
+			handleCurrentChange(val) {
+				this.listPostData.pageNum = val;
+				this.loadRfidData();
+			},
+			handleSizeChange(val) {
+				this.listPostData.pageSize = val;
+				this.listPostData.pageNum = 1;
+				this.loadRfidData();
+			},
+
+			// ===== 托盘轨迹 =====
+			openTrayTrack(trayId) {
+				this.get(`api/rfid/track?trayId=${trayId}`).then(res => {
+					this.trackTableData = res.data.records.map(item => ({
+						...item,
+						updateTime: this.formatTime(item.updateTime)
+					}))
+					this.trayTrackDialogVisible = true
+				}).catch(e => {
+					this.showMessage("查询托盘轨迹失败", "error")
+				})
+			},
+
+			// ===== 出库托盘授权 =====
+			// 解析授权数据（复用逻辑）
+			parseAuthorizationData(data) {
+				const authorizedTrayIds = [];
+				const authorizationMap = {};
+
+				// 统一处理不同格式的授权数据
+				const authList = Array.isArray(data) ? data : (data && data.trayIds ? [data] : []);
+
+				authList.forEach(authItem => {
+					const trayIds = authItem.trayIds || [];
+					const authNo = authItem.authorizationNo;
+					trayIds.forEach(trayId => {
+						authorizedTrayIds.push(String(trayId));
+						if (authNo) {
+							authorizationMap[String(trayId)] = authNo;
+						}
+					});
+				});
+
+				return {
+					authorizedTrayIds: [...new Set(authorizedTrayIds)],
+					authorizationMap
+				};
+			},
+
+			// 更新授权数据到组件状态
+			updateAuthorizationState(authData) {
+				const { authorizedTrayIds, authorizationMap } = this.parseAuthorizationData(authData);
+				this.outListPostData = authorizedTrayIds;
+				this.outAuthorizationMap = authorizationMap;
+				console.log('已更新授权数据:', this.outListPostData);
+				console.log('授权号映射表:', this.outAuthorizationMap);
+			},
+
+			// 打开出库托盘对话框
+			openOutTrayDialog() {
+				this.outTrayDialogVisible = true;
+
+				Promise.all([
+					this.get(`api/rfid/outbound-profile/nodes/${this.listPostData.nodeCode}/available-trays`),
+					this.get(`api/rfid/outbound-profile/nodes/${this.listPostData.nodeCode}/authorizations`)
+				]).then(([availableRes, authRes]) => {
+					console.log('全部托盘响应:', availableRes);
+					console.log('已授权响应:', authRes);
+
+					// 格式化全部托盘数据为穿梭框格式
+					const allTrays = Array.isArray(availableRes.data) ? availableRes.data : [];
+					this.trayIdList2 = allTrays.map(trayId => ({
+						key: String(trayId),
+						label: String(trayId)
+					}));
+
+					// 更新授权数据
+					this.updateAuthorizationState(authRes.data);
+					this.defaultOutTray = [...this.outListPostData];
+
+					console.log('穿梭框数据已加载');
+				}).catch(error => {
+					console.error('加载托盘数据失败:', error);
+					this.showMessage('加载托盘数据失败', 'error');
+					this.trayIdList2 = [];
+					this.outListPostData = [];
+					this.defaultOutTray = [];
+				});
+			},
+
+			// 穿梭框变化处理
+			handleChangeTransfer(val, direction, movedKeys) {
+				console.log('穿梭框变化:', { direction, movedKeys, val });
+
+				if (direction === 'right') {
+					this.authorizeTrays(movedKeys);
+				} else if (direction === 'left') {
+					this.cancelAuthorization(movedKeys);
+				}
+			},
+
+			// 授权托盘
+			authorizeTrays(trayIds) {
+				const requestBody = trayIds.map(trayId => ({
+					nodeCode: this.listPostData.nodeCode,
+					trayId: trayId
+				}));
+
+				console.log('授权请求:', requestBody);
+				this.post('api/rfid/outbound-profile/nodes/authorizations', requestBody)
+					.then(res => {
+						if (res.code == 200) {
+							this.showMessage(`授权成功 ${trayIds.length} 个托盘`, 'success');
+						} else {
+							this.showMessage('授权失败,请联系系统管理员', 'error');
+						}
+					})
+					.catch(error => {
+						console.error('授权失败:', error);
+						this.showMessage('授权失败', 'error');
+					})
+					.finally(() => {
+						this.reloadAuthorizationData();
+					});
+			},
+
+			// 取消授权托盘
+			cancelAuthorization(trayIds) {
+				console.log('取消授权托盘:', trayIds);
+
+				const authorizationNos = [];
+				const notFoundTrayIds = [];
+
+				trayIds.forEach(trayId => {
+					const authNo = this.outAuthorizationMap[String(trayId)];
+					if (authNo) {
+						authorizationNos.push(authNo);
+					} else {
+						notFoundTrayIds.push(trayId);
+					}
+				});
+
+				console.log('找到的授权号:', authorizationNos);
+				if (notFoundTrayIds.length > 0) {
+					console.warn('未找到授权号的托盘:', notFoundTrayIds);
+				}
+
+				if (authorizationNos.length > 0) {
+					this.delete('api/rfid/outbound-profile/authorizations', authorizationNos)
+						.then(res => {
+							console.log('取消授权成功:', res);
+							if (res.code == 200) {
+								this.showMessage(`取消授权成功 ${authorizationNos.length} 个托盘`, 'success');
+							} else {
+								this.showMessage('取消授权失败,请联系系统管理员', 'error');
+							}
+						})
+						.catch(error => {
+							console.error('取消授权失败:', error);
+							this.showMessage('取消授权失败', 'error');
+						})
+						.finally(() => {
+							this.reloadAuthorizationData();
+						});
+				} else {
+					this.showMessage('未找到授权号，无法取消授权', 'warning');
+					this.reloadAuthorizationData();
+				}
+			},
+
+			// 重新加载授权数据
+			reloadAuthorizationData() {
+				this.get(`api/rfid/outbound-profile/nodes/${this.listPostData.nodeCode}/authorizations`)
+					.then(res => {
+						console.log('重新加载授权数据:', res.data);
+						this.updateAuthorizationState(res.data);
+					})
+					.catch(error => {
+						console.error('重新加载授权数据失败:', error);
+					});
+			},
+
+			// ===== SSE长连接 =====
+			connectStream() {
+				if (!window.EventSource) {
+					this.setStreamStatus('unsupported', '浏览器不支持长连接');
+					return;
+				}
+				this.closeStream();
+				this.eventSource = new EventSource(this.apiBaseUrl + 'api/rfid/realtime/stream');
+				this.eventSource.onopen = () => {
+					this.setStreamStatus('connected', '长连接已连接');
+				};
+				this.eventSource.addEventListener('rfid-change', (event) => {
+					console.log('接收到实时数据:', event);
+					this.handleRealtimeData(event);
+				});
+				this.eventSource.onerror = () => {
+					this.setStreamStatus('error', '长连接断开，重连中...');
+					this.closeStream();
+					setTimeout(() => this.connectStream(), 3000);
+				};
+			},
+			closeStream() {
+				if (this.eventSource) {
+					this.eventSource.close();
+					this.eventSource = null;
+				}
+			},
+			// 处理实时数据
+			handleRealtimeData(event) {
+				try {
+					const parsedData = JSON.parse(event.data);
+					// 兼容两种数据格式：直接数据或有snapshot包裹
+					const record = parsedData.snapshot || parsedData;
+					console.log('接收到实时数据3:', record);
+
+					// 检查record是否存在
+					if (!record) {
+						console.error('数据为空，跳过处理');
+						return;
+					}
+
+					const recordId = record.id;
+
+					// 防抖：3秒内相同托盘不重复处理
+					if (this.lastScanPalletSet.has(recordId)) {
+						console.log('防抖过滤，跳过重复托盘:', recordId);
+						return;
+					}
+					this.lastScanPalletSet.add(recordId);
+					setTimeout(() => { this.lastScanPalletSet.delete(recordId) }, 3000);
+
+					// 历史搜索模式下不处理实时数据
+					if (this.isSearchHistory) {
+						console.log('历史搜索模式，跳过实时数据');
+						return;
+					}
+
+					// 格式化时间字段
+					record.updateTime = this.formatTime(record.updateTime);
+					record.createTime = this.formatTime(record.createTime);
+
+					// 更新表格数据
+					this.tableData.unshift(record);
+					if (this.tableData.length > 100) this.tableData.pop();
+
+					// 检查异常并显示弹窗  	
+					if (record) {
+
+						this.showExceptionDialog(record);
+					}
+
+				} catch (e) {
+					console.error('解析实时数据失败:', e);
+				}
+			},
+
+			// 显示异常弹窗
+			showExceptionDialog(record) {
+				// 设置异常消息数据
+				this.exceptionMessage = [{
+					trayId: record.trayId || record.recordId,
+					id: record.id || '-',
+					state: record.state || '-',
+					businessState: this.getBusinessState(record.businessState) || record.businessState,
+					rfid: record.rfid || '-',
+					jdRfid: record.jdRfid || '-',
+					lastOperateType: record.lastOperateType || '-',
+					createTime: record.updateTime || record.createTime || '-'
+				}];
+
+				// 显示弹窗
+				this.dialogVisible = true;
+
+				// 显示消息提示
+				this.$message.warning(`检测到异常: 托盘 ${record.trayId || record.recordId}`);
+			},
+		},
+	}
+	new Vue({
+		el: '#app',
+		...app
+	})
+</script>
+
+</html>

@@ -125,6 +125,15 @@
 			padding: 11.05px 0;
 		}
 
+		.el-table .el-table__cell .exceptionInfo {
+			color: #c80000;
+			font-weight: bold;
+		}
+
+		.el-table__row:has(.exceptionInfo) {
+			background: #f1f1f1;
+		}
+
 		.el-pagination {
 			.el-pager li {
 				padding: 0px;
